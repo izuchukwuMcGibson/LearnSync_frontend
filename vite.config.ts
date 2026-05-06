@@ -6,4 +6,12 @@ export default defineConfig({
   css: {
     postcss: "./postcss.config.cjs",
   },
+  server: {
+    proxy: {
+      "/api": {
+        target: "https://learnsync-r4b1.onrender.com",
+        changeOrigin: true,
+      },
+    },
+  },
 });

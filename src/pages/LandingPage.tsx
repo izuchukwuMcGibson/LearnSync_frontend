@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   FiFileText,
   FiBookOpen,
@@ -46,12 +47,18 @@ export const LandingPage = () => {
               )}
             </nav>
             <div className='flex items-center gap-6'>
-              <button className='hidden sm:inline text-sm font-medium text-gray-500 hover:text-gray-900 font-inter'>
+              <Link
+                to='/login'
+                className='hidden sm:inline text-sm font-medium text-gray-500 hover:text-gray-900 font-inter'
+              >
                 Login
-              </button>
-              <button className='bg-[#2b4c7e] text-white px-5 py-2 rounded text-sm font-medium hover:bg-[#1f385c] transition font-inter'>
+              </Link>
+              <Link
+                to='/signup'
+                className='bg-[#2b4c7e] text-white px-5 py-2 rounded text-sm font-medium hover:bg-[#1f385c] transition font-inter inline-block'
+              >
                 Get Started
-              </button>
+              </Link>
             </div>
           </div>
         </div>
@@ -75,9 +82,12 @@ export const LandingPage = () => {
               </p>
 
               <div className='flex flex-col sm:flex-row gap-4'>
-                <button className='bg-[#2b4c7e] text-white px-8 py-3.5 rounded font-semibold hover:bg-[#1f385c] transition'>
+                <Link
+                  to='/signup'
+                  className='bg-[#2b4c7e] text-white px-8 py-3.5 rounded font-semibold hover:bg-[#1f385c] transition inline-flex items-center justify-center'
+                >
                   Get Started Free
-                </button>
+                </Link>
                 <button className='border border-gray-300 text-gray-700 px-8 py-3.5 rounded font-semibold hover:bg-gray-50 transition flex items-center justify-center gap-2'>
                   <FiEye className='w-5 h-5 text-gray-400' />
                   See How It Works
@@ -340,9 +350,12 @@ export const LandingPage = () => {
             Join thousands of CS students who are accelerating their learning
             with LearnSync. Start your first module today.
           </p>
-          <button className='bg-white text-[#2b4c7e] px-8 py-3.5 rounded font-bold hover:bg-blue-50 transition text-sm'>
+          <Link
+            to='/signup'
+            className='bg-white text-[#2b4c7e] px-8 py-3.5 rounded font-bold hover:bg-blue-50 transition text-sm inline-block'
+          >
             Get Started Free
-          </button>
+          </Link>
         </div>
       </section>
 
