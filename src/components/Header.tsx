@@ -7,9 +7,10 @@ interface HeaderProps {
     name: string;
     email: string;
   } | null;
+  onUploadClick?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ user }) => {
+const Header: React.FC<HeaderProps> = ({ user, onUploadClick }) => {
   return (
     <header className='w-full bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 z-10 sticky top-0'>
       <div className='flex items-center gap-8'>
@@ -47,7 +48,10 @@ const Header: React.FC<HeaderProps> = ({ user }) => {
             className='pl-9 pr-4 py-1.5 bg-gray-50 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-[#2b4c7e] focus:bg-white w-64'
           />
         </div>
-        <button className='bg-[#2b4c7e] text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-[#1f385c] transition'>
+        <button
+          onClick={onUploadClick}
+          className='bg-[#2b4c7e] text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-[#1f385c] transition'
+        >
           Upload Notes
         </button>
         <button className='text-gray-400 hover:text-gray-600'>
