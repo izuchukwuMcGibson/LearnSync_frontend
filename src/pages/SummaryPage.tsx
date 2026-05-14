@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import Skeleton from "react-loading-skeleton";
 import {
   FiBook,
@@ -7,6 +7,7 @@ import {
   FiMessageSquare,
   FiHelpCircle,
   FiChevronRight,
+  FiChevronLeft,
   FiBookmark,
   FiAlertTriangle,
 } from "react-icons/fi";
@@ -21,39 +22,94 @@ interface SummaryData {
   noteId: string;
   summary: string;
   keyPoints: KeyPoint[];
+  isRead?: boolean;
+  quizAttempts?: number;
+  averageScore?: number;
 }
 
 const SummaryPage: React.FC = () => {
   const { noteId } = useParams<{ noteId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const shouldAutoGenerate = queryParams.get("generate") === "true";
 
   const [data, setData] = useState<SummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsGeneration, setNeedsGeneration] = useState(false);
   const [currentConceptIdx, setCurrentConceptIdx] = useState(0);
+  const [isRead, setIsRead] = useState(false);
+
+  const triggerGeneration = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      setNeedsGeneration(false);
+
+      const response = await fetch(`/api/summary/generate-summary/${noteId}`, {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        let errorMsg = "Failed to generate summary";
+        try {
+          const errorData = await response.json();
+          errorMsg = errorData.error || errorData.message || errorMsg;
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      const json = await response.json();
+
+      if (
+        json.error ||
+        (json.message && json.message.toLowerCase().includes("error"))
+      ) {
+        throw new Error(json.error || json.message);
+      }
+
+      const summaryData = json.data || json;
+      setData(summaryData);
+      if (summaryData.isRead) {
+        setIsRead(true);
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "An error occurred");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchSummary = async () => {
       try {
-        const response = await fetch(
-          `/api/summary/generate-summary/${noteId}`,
-          {
-            method: "POST",
-          },
-        );
+        setIsLoading(true);
+        // First try to fetch the existing summary from the database
+        let response = await fetch(`/api/summary/${noteId}`);
+
+        if (!isMounted) return;
+
+        // If it doesn't exist
         if (!response.ok) {
-          let errorMsg = "Failed to generate summary";
-          try {
-            const errorData = await response.json();
-            errorMsg = errorData.error || errorData.message || errorMsg;
-          } catch (e) {
-            // Just fail gracefully if it's not JSON
+          if (shouldAutoGenerate) {
+            // Auto generate directly if coming from "Process" button
+            await triggerGeneration();
+          } else {
+            // Just show the "Ready to Process?" screen
+            setNeedsGeneration(true);
+            setIsLoading(false);
           }
-          throw new Error(errorMsg);
+          return;
         }
+
         const json = await response.json();
 
-        // Some backends might return 200 OK but still pass an error in the payload
+        if (!isMounted) return;
+
         if (
           json.error ||
           (json.message && json.message.toLowerCase().includes("error"))
@@ -61,19 +117,30 @@ const SummaryPage: React.FC = () => {
           throw new Error(json.error || json.message);
         }
 
-        setData(json.data || json);
+        const summaryData = json.data || json;
+        setData(summaryData);
+        if (summaryData.isRead) {
+          setIsRead(true);
+        }
       } catch (err: any) {
+        if (!isMounted) return;
         console.error(err);
         setError(err.message || "An error occurred");
       } finally {
-        setIsLoading(false);
+        if (isMounted && !needsGeneration) {
+          setIsLoading(false);
+        }
       }
     };
 
     if (noteId) {
       fetchSummary();
     }
-  }, [noteId]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [noteId, shouldAutoGenerate]);
 
   return (
     <div className='min-h-screen bg-[#f8fafc] flex flex-col font-inter'>
@@ -107,9 +174,22 @@ const SummaryPage: React.FC = () => {
           </nav>
 
           <div className='p-6'>
-            <button className='w-full bg-[#112240] text-white py-2.5 rounded-md text-sm font-bold hover:bg-[#1f385c] transition'>
-              Take Quiz
+            <button
+              onClick={() => isRead && navigate(`/quiz/${noteId}`)}
+              disabled={!isRead}
+              className={`w-full py-2.5 rounded-md text-sm font-bold transition flex justify-center items-center gap-2 ${
+                isRead
+                  ? "bg-[#112240] text-white hover:bg-[#1f385c]"
+                  : "bg-gray-200 text-gray-400 cursor-not-allowed"
+              }`}
+            >
+              Take Quiz {isRead && <FiChevronRight />}
             </button>
+            {!isRead && (
+              <p className='text-[10px] text-gray-400 text-center mt-2'>
+                Finish reading all concepts to unlock
+              </p>
+            )}
           </div>
         </aside>
 
@@ -129,6 +209,34 @@ const SummaryPage: React.FC = () => {
                     <Skeleton height={140} borderRadius={12} />
                     <Skeleton height={140} borderRadius={12} />
                   </div>
+                </div>
+              </div>
+            ) : needsGeneration ? (
+              <div className='flex flex-col items-center justify-center py-24 text-center'>
+                <div className='w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mb-6'>
+                  <FiBook className='w-8 h-8 text-[#2b4c7e]' />
+                </div>
+                <h3 className='text-2xl font-bold text-[#112240] mb-3'>
+                  Ready to Extract Insights?
+                </h3>
+                <p className='text-gray-500 max-w-md mx-auto mb-8 leading-relaxed'>
+                  This note hasn't been analyzed yet. Generating an adaptive
+                  summary will consume your quota. Do you want to process this
+                  document now?
+                </p>
+                <div className='flex gap-4'>
+                  <button
+                    onClick={() => navigate("/dashboard")}
+                    className='px-6 py-2.5 bg-gray-100 text-gray-700 rounded text-sm font-bold hover:bg-gray-200 transition'
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    onClick={triggerGeneration}
+                    className='px-6 py-2.5 bg-[#112240] text-white rounded text-sm font-bold hover:bg-[#1f385c] transition'
+                  >
+                    Generate Summary
+                  </button>
                 </div>
               </div>
             ) : error ? (
@@ -189,50 +297,79 @@ const SummaryPage: React.FC = () => {
                         Summary
                       </h2>
                     </div>
-                    <p className='text-[#334155] leading-relaxed text-sm mb-6 whitespace-pre-wrap'>
+                    <p className='text-[#112240] font-medium leading-relaxed text-lg mb-6 whitespace-pre-wrap'>
                       {data.summary}
                     </p>
-                    <div className='w-full h-48 bg-gradient-to-r from-blue-900 to-[#112240] rounded-lg opacity-90 overflow-hidden relative'>
-                      {/* Placeholder decorative graphic to match image vibe */}
-                      <div
-                        className='absolute inset-0 opacity-20'
-                        style={{
-                          backgroundImage:
-                            "radial-gradient(#fff 1px, transparent 1px)",
-                          backgroundSize: "20px 20px",
-                        }}
-                      ></div>
-                      <div className='absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-[#112240] to-transparent'></div>
-                    </div>
                   </div>
 
                   {/* Right Side Cards */}
                   <div className='lg:w-72 flex flex-col gap-6'>
                     <div className='bg-[#112240] text-white rounded-xl p-6 shadow-md border border-[#1f385c]'>
                       <p className='text-xs font-bold uppercase tracking-wider text-blue-300 mb-2'>
-                        Difficulty Level
+                        Mastery Level
                       </p>
-                      <h3 className='text-2xl font-bold mb-4'>Intermediate</h3>
+                      <h3 className='text-2xl font-bold mb-4'>
+                        {!data.quizAttempts || data.quizAttempts === 0
+                          ? "Beginner"
+                          : (data.averageScore || 0) >= 80
+                            ? "Pro"
+                            : (data.averageScore || 0) >= 50
+                              ? "Intermediate"
+                              : "Amateur"}
+                      </h3>
                       <div className='flex gap-2'>
-                        <div className='h-1.5 flex-1 bg-white rounded-full'></div>
-                        <div className='h-1.5 flex-1 bg-white rounded-full'></div>
-                        <div className='h-1.5 flex-1 bg-white/30 rounded-full'></div>
+                        <div
+                          className={`h-1.5 flex-1 rounded-full ${!data.quizAttempts || data.quizAttempts === 0 ? "bg-white/30" : "bg-white"}`}
+                        ></div>
+                        <div
+                          className={`h-1.5 flex-1 rounded-full ${data.quizAttempts && (data.averageScore || 0) >= 50 ? "bg-white" : "bg-white/30"}`}
+                        ></div>
+                        <div
+                          className={`h-1.5 flex-1 rounded-full ${data.quizAttempts && (data.averageScore || 0) >= 80 ? "bg-white" : "bg-white/30"}`}
+                        ></div>
                       </div>
                     </div>
 
-                    <div className='bg-[#f8fafc] rounded-xl p-6 text-center border border-gray-200 shadow-sm flex flex-col items-center justify-center py-8'>
-                      <h3 className='text-lg font-bold text-[#112240] mb-6'>
-                        Mastery Progress
-                      </h3>
-                      <div className='w-24 h-24 rounded-full border-4 border-gray-200 border-t-green-500 border-r-green-500 flex items-center justify-center mb-4'>
-                        <span className='text-xl font-bold text-[#112240]'>
-                          70%
-                        </span>
+                    {data.quizAttempts && data.quizAttempts > 0 ? (
+                      <div className='bg-[#f8fafc] rounded-xl p-6 text-center border border-gray-200 shadow-sm flex flex-col items-center justify-center py-8 relative'>
+                        <p className='absolute top-3 left-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest'>
+                          {data.quizAttempts} Quizzes Taken
+                        </p>
+                        <h3 className='text-lg font-bold text-[#112240] mb-6 mt-2'>
+                          Mastery Progress
+                        </h3>
+                        <div
+                          className='w-24 h-24 rounded-full flex items-center justify-center mb-4'
+                          style={{
+                            background: `conic-gradient(
+                              ${(data.averageScore || 0) >= 70 ? "#22c55e" : (data.averageScore || 0) >= 50 ? "#3b82f6" : "#eab308"} ${data.averageScore || 0}%,
+                              #e5e7eb 0%
+                            )`,
+                          }}
+                        >
+                          <div
+                            className={`w-[86px] h-[86px] rounded-full flex items-center justify-center ${
+                              (data.averageScore || 0) >= 70
+                                ? "bg-green-50"
+                                : (data.averageScore || 0) >= 50
+                                  ? "bg-blue-50"
+                                  : "bg-yellow-50"
+                            }`}
+                          >
+                            <span className='text-xl font-bold text-[#112240]'>
+                              {Math.round(data.averageScore || 0)}%
+                            </span>
+                          </div>
+                        </div>
+                        <p className='text-xs text-gray-500 px-4'>
+                          {(data.averageScore || 0) >= 70
+                            ? "Great job! You have a solid grasp of this topic."
+                            : (data.averageScore || 0) >= 50
+                              ? "Good progress! A bit more review will get you to perfection."
+                              : "Keep practicing! Your mastery will grow with each quiz."}
+                        </p>
                       </div>
-                      <p className='text-xs text-gray-500 px-4'>
-                        You're doing great! Keep reading to finish the module.
-                      </p>
-                    </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -253,7 +390,15 @@ const SummaryPage: React.FC = () => {
                         <button className='text-sm font-semibold flex items-center gap-2 text-[#2b4c7e]'>
                           <FiBookmark /> Save for Later
                         </button>
-                        <button className='bg-green-500 hover:bg-green-600 text-white text-sm font-bold py-1.5 px-4 rounded transition flex items-center gap-2'>
+                        <button
+                          onClick={() => navigate(`/quiz/${noteId}`)}
+                          disabled={!isRead}
+                          className={`text-sm font-bold py-1.5 px-4 rounded transition flex items-center gap-2 ${
+                            isRead
+                              ? "bg-green-500 hover:bg-green-600 text-white"
+                              : "bg-gray-200 text-gray-400 cursor-not-allowed hidden"
+                          }`}
+                        >
                           I'm Ready - Take Quiz <FiChevronRight />
                         </button>
                       </div>
@@ -263,7 +408,7 @@ const SummaryPage: React.FC = () => {
                       </p>
 
                       <div className='flex gap-6 mt-8'>
-                        <div className='w-16 h-16 rounded-xl bg-blue-100 flex items-center justify-center'>
+                        <div className='w-16 h-16 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0'>
                           <FiList className='w-8 h-8 text-blue-600' />
                         </div>
                         <div className='flex-1'>
@@ -281,16 +426,77 @@ const SummaryPage: React.FC = () => {
                           Concept {currentConceptIdx + 1} of{" "}
                           {data.keyPoints.length}
                         </span>
-                        <button
-                          onClick={() =>
-                            setCurrentConceptIdx(
-                              (prev) => (prev + 1) % data.keyPoints.length,
-                            )
-                          }
-                          className='bg-[#112240] text-white px-5 py-2.5 rounded text-sm font-bold hover:bg-[#1f385c] transition flex items-center gap-2'
-                        >
-                          Next Concept <FiChevronRight />
-                        </button>
+
+                        <div className='flex gap-3'>
+                          <button
+                            onClick={() => {
+                              if (currentConceptIdx > 0) {
+                                setCurrentConceptIdx((prev) => prev - 1);
+                              }
+                            }}
+                            disabled={currentConceptIdx === 0}
+                            className={`px-5 py-2.5 rounded text-sm font-bold transition flex items-center gap-2 ${
+                              currentConceptIdx === 0
+                                ? "bg-gray-100 text-gray-400 cursor-not-allowed hidden"
+                                : "bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
+                            }`}
+                          >
+                            <FiChevronLeft /> Previous
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              if (
+                                currentConceptIdx <
+                                data.keyPoints.length - 1
+                              ) {
+                                setCurrentConceptIdx((prev) => prev + 1);
+                              } else if (!isRead) {
+                                try {
+                                  const readResp = await fetch(
+                                    `/api/summary/${noteId}/read`,
+                                    {
+                                      method: "PATCH",
+                                      headers: {
+                                        "Content-Type": "application/json",
+                                      },
+                                    },
+                                  );
+                                  if (readResp.ok) {
+                                    setIsRead(true);
+                                  } else {
+                                    const errorData = await readResp
+                                      .json()
+                                      .catch(() => ({}));
+                                    console.error(
+                                      "Backend returned error for read endpoint:",
+                                      readResp.status,
+                                      errorData,
+                                    );
+                                  }
+                                } catch (err) {
+                                  console.error("Error marking as read", err);
+                                }
+                              }
+                            }}
+                            className={`px-5 py-2.5 rounded text-sm font-bold transition flex items-center gap-2 ${
+                              currentConceptIdx === data.keyPoints.length - 1 &&
+                              isRead
+                                ? "bg-green-500 text-white hover:bg-green-600"
+                                : "bg-[#112240] text-white hover:bg-[#1f385c]"
+                            }`}
+                          >
+                            {currentConceptIdx < data.keyPoints.length - 1 ? (
+                              <>
+                                Next Concept <FiChevronRight />
+                              </>
+                            ) : isRead ? (
+                              "Completed"
+                            ) : (
+                              "Finish Reading"
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

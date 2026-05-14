@@ -169,7 +169,7 @@ const Dashboard: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className='min-h-screen bg-gray-50 flex flex-col font-inter'>
+      <div className='h-screen bg-gray-50 flex flex-col font-inter'>
         <Header user={null} />
         <div className='flex flex-1 overflow-hidden'>
           <SideBar />
@@ -206,7 +206,7 @@ const Dashboard: React.FC = () => {
   }
 
   return (
-    <div className='min-h-screen bg-gray-50 flex flex-col font-inter'>
+    <div className='h-screen bg-gray-50 flex flex-col font-inter'>
       <input
         type='file'
         ref={fileInputRef}
@@ -230,69 +230,81 @@ const Dashboard: React.FC = () => {
                 study?
               </h1>
               <p className='text-gray-500 text-sm'>
-                You've mastered 64% of your Data Structures path. Pick up where
-                you left off.
+                {notes.length > 0
+                  ? `You have ${notes.length} saved notes. Pick up where you left off.`
+                  : "Upload notes to start generating your learning paths."}
               </p>
             </div>
 
             <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
-              {/* Array Sorting Card */}
-              <div className='bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col hover:border-[#2b4c7e] transition cursor-pointer group'>
-                <div className='flex justify-between items-start mb-4'>
-                  <span className='text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded'>
-                    Data Structures
-                  </span>
-                  <button className='text-gray-400 hover:text-gray-600'>
-                    <FiMoreHorizontal />
-                  </button>
-                </div>
-                <h3 className='text-xl font-bold text-[#112240] mb-1'>
-                  Array Sorting
-                </h3>
-                <p className='text-xs text-gray-400 mb-8'>
-                  Last viewed: Feb 20, 2024
-                </p>
-                <div className='mt-auto flex justify-between items-center'>
-                  <div className='flex items-center gap-1.5 text-xs font-semibold text-orange-500'>
-                    <div className='w-2 h-2 rounded-full bg-orange-500'></div>
-                    In Progress
-                  </div>
-                  <div className='text-[#2b4c7e] text-sm font-semibold flex items-center gap-1 group-hover:gap-2 transition-all'>
-                    Continue <FiChevronRight />
-                  </div>
-                </div>
-              </div>
+              {/* Dynamic In-Progress Cards */}
+              {[...notes]
+                .sort(
+                  (a, b) =>
+                    new Date(b.createdAt || 0).getTime() -
+                    new Date(a.createdAt || 0).getTime(),
+                )
+                .slice(0, 2)
+                .map((note, index) => {
+                  const date = new Date(
+                    note.createdAt || Date.now(),
+                  ).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  });
+                  const noteId = note.id || note._id || note.noteId;
 
-              {/* Linked Lists Card */}
-              <div className='bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col hover:border-[#2b4c7e] transition cursor-pointer group border-l-4 border-l-[#2b4c7e]'>
-                <div className='flex justify-between items-start mb-4'>
-                  <span className='text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded'>
-                    Data Structures
-                  </span>
-                  <button className='text-gray-400 hover:text-gray-600'>
-                    <FiMoreHorizontal />
-                  </button>
-                </div>
-                <h3 className='text-xl font-bold text-[#112240] mb-1'>
-                  Linked Lists
-                </h3>
-                <p className='text-xs text-gray-400 mb-8'>
-                  Last viewed: Feb 18, 2024
-                </p>
-                <div className='mt-auto flex justify-between items-center'>
-                  <div className='flex items-center gap-1.5 text-xs font-semibold text-green-500'>
-                    <div className='w-4 h-4 rounded-full bg-green-100 flex items-center justify-center'>
-                      <FiMonitor className='w-2 h-2' />
+                  return (
+                    <div
+                      key={noteId || index}
+                      onClick={() => navigate(`/summary/${noteId}`)}
+                      className={`bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col hover:border-[#2b4c7e] transition cursor-pointer group ${index === 1 ? "border-l-4 border-l-[#2b4c7e]" : ""}`}
+                    >
+                      <div className='flex justify-between items-start mb-4'>
+                        <span className='text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded'>
+                          {note.topic || "General"}
+                        </span>
+                        <button
+                          className='text-gray-400 hover:text-gray-600'
+                          onClick={(e) => {
+                            e.stopPropagation(); /* Optional action menu */
+                          }}
+                        >
+                          <FiMoreHorizontal />
+                        </button>
+                      </div>
+                      <h3
+                        className='text-xl font-bold text-[#112240] mb-1 truncate'
+                        title={
+                          note.originalName ||
+                          note.fileName ||
+                          note.title ||
+                          `Note ${index + 1}`
+                        }
+                      >
+                        {note.originalName ||
+                          note.fileName ||
+                          note.title ||
+                          `Note ${index + 1}`}
+                      </h3>
+                      <p className='text-xs text-gray-400 mb-8'>
+                        Uploaded: {date}
+                      </p>
+                      <div className='mt-auto flex justify-between items-center'>
+                        <div className='flex items-center gap-1.5 text-xs font-semibold text-orange-500'>
+                          <div className='w-2 h-2 rounded-full bg-orange-500'></div>
+                          In Progress
+                        </div>
+                        <div className='text-[#2b4c7e] text-sm font-semibold flex items-center gap-1 group-hover:gap-2 transition-all'>
+                          Continue <FiChevronRight />
+                        </div>
+                      </div>
                     </div>
-                    90% Mastered
-                  </div>
-                  <div className='text-[#2b4c7e] text-sm font-semibold flex items-center gap-1 group-hover:gap-2 transition-all'>
-                    Review <FiChevronRight />
-                  </div>
-                </div>
-              </div>
+                  );
+                })}
 
-              {/* New Notes Card */}
+              {/* Keep New Notes Card at the end */}
               <div className='bg-[#2b4c7e] p-6 rounded-xl border border-[#1f385c] shadow-sm flex flex-col items-center justify-center text-center'>
                 <div className='w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center mb-4'>
                   <FiUpload className='text-white w-5 h-5' />
@@ -319,12 +331,6 @@ const Dashboard: React.FC = () => {
                 <h2 className='text-xl font-bold text-[#112240]'>
                   Recently Uploaded Notes
                 </h2>
-                <a
-                  href='#'
-                  className='text-sm font-semibold text-[#2b4c7e] hover:text-[#1f385c]'
-                >
-                  View All
-                </a>
               </div>
 
               <div className='grid grid-cols-1 md:grid-cols-3 gap-6'>
@@ -374,21 +380,23 @@ const Dashboard: React.FC = () => {
                         </div>
                         <div className='flex items-center gap-2'>
                           <button
-                            onClick={() =>
+                            onClick={(e) => {
+                              e.stopPropagation();
                               navigate(
-                                `/summary/${note.id || note._id || note.noteId}`,
-                              )
-                            }
+                                `/summary/${note.id || note._id || note.noteId}?generate=true`,
+                              );
+                            }}
                             className='flex-1 bg-[#112240] text-white py-2 rounded text-xs font-bold hover:bg-[#1f385c] transition'
                           >
                             Process
                           </button>
                           <button
-                            onClick={() =>
+                            onClick={(e) => {
+                              e.stopPropagation();
                               navigate(
                                 `/summary/${note.id || note._id || note.noteId}`,
-                              )
-                            }
+                              );
+                            }}
                             className='w-10 h-8 flex items-center justify-center border border-gray-200 rounded text-gray-400 hover:text-[#2b4c7e] hover:bg-gray-50 transition'
                           >
                             <FiEye className='w-4 h-4' />
