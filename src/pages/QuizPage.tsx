@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import Editor from "@monaco-editor/react";
 import {
   FiFlag,
   FiArrowLeft,
   FiArrowRight,
   FiCheckCircle,
+  FiTerminal,
 } from "react-icons/fi";
 import Header from "../components/Header";
 
@@ -16,15 +18,96 @@ interface QuizOption {
   explanation: string;
 }
 
+interface CodeTestCase {
+  invocation: string;
+  expected: string;
+}
+
 interface QuizQuestion {
   question: string;
   codeSnippet?: string;
-  options: QuizOption[];
-  difficulty: string; // e.g., "Easy", "Medium", "Hard"
-  round: number; // 1 or 2
+  options?: QuizOption[];
+  difficulty: string;
+  round: number;
+  type?: "mcq" | "code";
+  starterCode?: string;
+  testCases?: CodeTestCase[];
+  language?: string;
+  explanation: string;
 }
 
-const QuizPage: React.FC = () => {
+interface CodeExecutionResult {
+  success: boolean;
+  output: string;
+}
+
+interface GlotRunResponse {
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  message?: string;
+}
+
+const GLOT_API_URL = import.meta.env.VITE_GLOT_API_URL || "/glot-api/run";
+const GLOT_VERSION = import.meta.env.VITE_GLOT_VERSION || "latest";
+
+const getGlotLanguage = (language: string) => {
+  const normalized = language.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    javascript: "javascript",
+    js: "javascript",
+    node: "javascript",
+    nodejs: "javascript",
+    typescript: "typescript",
+    ts: "typescript",
+    python: "python",
+    python3: "python",
+    py: "python",
+    java: "java",
+    cpp: "cpp",
+    "c++": "cpp",
+    cplusplus: "cpp",
+  };
+
+  return aliases[normalized] || "javascript";
+};
+
+const getGlotFileName = (language: string) => {
+  const fileNames: Record<string, string> = {
+    javascript: "main.js",
+    typescript: "main.ts",
+    python: "main.py",
+    java: "Main.java",
+    cpp: "main.cpp",
+  };
+
+  return fileNames[language] || "main.txt";
+};
+
+const buildGlotRunUrl = (language: string) => {
+  const baseUrl = GLOT_API_URL.replace(/\/$/, "");
+  return `${baseUrl}/${encodeURIComponent(language)}/${encodeURIComponent(
+    GLOT_VERSION,
+  )}`;
+};
+
+const getGlotHeaders = () => {
+  return {
+    "Content-Type": "application/json",
+  };
+};
+
+const getExecutionErrorMessage = (data: GlotRunResponse) => {
+  const message = data.message || data.error || data.stderr;
+
+  if (!message) {
+    return "Execution engine did not return a runnable result.";
+  }
+
+  return message;
+};
+
+const QuizPage = () => {
   const { noteId } = useParams<{ noteId: string }>();
   const navigate = useNavigate();
 
@@ -34,9 +117,16 @@ const QuizPage: React.FC = () => {
 
   const [currentRound, setCurrentRound] = useState(1);
   const [currentIndex, setCurrentIndex] = useState(0);
+
   const [selectedAnswers, setSelectedAnswers] = useState<
     Record<number, number>
   >({});
+  const [codeAnswers, setCodeAnswers] = useState<Record<number, string>>({});
+  const [codeResults, setCodeResults] = useState<
+    Record<number, CodeExecutionResult>
+  >({});
+  const [isExecuting, setIsExecuting] = useState(false);
+
   const [isFinished, setIsFinished] = useState(false);
   const [quizId, setQuizId] = useState<string | null>(null);
 
@@ -61,9 +151,8 @@ const QuizPage: React.FC = () => {
           try {
             const errorData = await response.json();
             errorMsg = errorData.error || errorData.message || errorMsg;
-            console.error("Quiz generation backend error details:", errorData);
-          } catch (e) {
-            // Ignore non-json
+          } catch {
+            // Ignore parse errors
           }
           throw new Error(errorMsg);
         }
@@ -71,19 +160,15 @@ const QuizPage: React.FC = () => {
         const json = await response.json();
         if (!isMounted) return;
 
-        if (
-          json.quizId ||
-          (json.data && json.data.id) ||
-          (json.data && json.data._id)
-        ) {
+        if (json.quizId || (json.data && (json.data.id || json.data._id))) {
           setQuizId(
             json.quizId || (json.data && (json.data.id || json.data._id)),
           );
         }
 
         let quizData = json.data || json.questions || json;
+
         if (!Array.isArray(quizData)) {
-          // If it's returning rounds structure, flatten it
           if (quizData.rounds) {
             const flattened: QuizQuestion[] = [];
             quizData.rounds.forEach((r: any, rIdx: number) => {
@@ -99,8 +184,10 @@ const QuizPage: React.FC = () => {
           }
         }
 
-        // Transform backend objective format into the array structure the UI expects
         const formattedQuestions = quizData.map((q: any) => {
+          if (q.type === "code") {
+            return { ...q, type: "code", round: roundNum };
+          }
           if (
             q.options &&
             typeof q.options === "object" &&
@@ -109,7 +196,8 @@ const QuizPage: React.FC = () => {
             const keys = ["A", "B", "C", "D"];
             return {
               ...q,
-              round: roundNum, // Explicitly Tag round using the state mapping
+              type: "mcq",
+              round: roundNum,
               options: keys.map((key) => ({
                 text: q.options[key] || "",
                 isCorrect: q.correctAnswer === key,
@@ -117,13 +205,12 @@ const QuizPage: React.FC = () => {
               })),
             };
           }
-          return { ...q, round: roundNum };
+          return { ...q, type: "mcq", round: roundNum };
         });
 
         setQuestions(formattedQuestions);
       } catch (err: any) {
         if (!isMounted) return;
-        console.error("Quiz erro", err);
         setError(err.message || "Failed to generate quiz");
       } finally {
         if (isMounted) setIsLoading(false);
@@ -141,15 +228,110 @@ const QuizPage: React.FC = () => {
     setIsFinished(false);
     setCurrentIndex(0);
     setSelectedAnswers({});
+    setCodeAnswers({});
+    setCodeResults({});
     setCurrentRound((prev) => prev + 1);
   };
 
   const handleSelectOption = (idx: number) => {
     if (isFinished) return;
-    setSelectedAnswers((prev) => ({
-      ...prev,
-      [currentIndex]: idx,
-    }));
+    setSelectedAnswers((prev) => ({ ...prev, [currentIndex]: idx }));
+  };
+
+  const handleRunCode = async () => {
+    const question = questions[currentIndex];
+    if (!question || question.type !== "code") return;
+
+    setIsExecuting(true);
+
+    // Get user code from state, or default to starter code
+    const userPayloadCode =
+      codeAnswers[currentIndex] !== undefined
+        ? codeAnswers[currentIndex]
+        : question.starterCode || "";
+
+    const language = question.language || "javascript";
+    const glotLanguage = getGlotLanguage(language);
+
+    try {
+      const apiResponse = await fetch(buildGlotRunUrl(glotLanguage), {
+        method: "POST",
+        headers: getGlotHeaders(),
+        body: JSON.stringify({
+          files: [
+            {
+              name: getGlotFileName(glotLanguage),
+              content: userPayloadCode,
+            },
+          ],
+        }),
+      });
+
+      const result = (await apiResponse.json()) as GlotRunResponse;
+
+      if (!apiResponse.ok) {
+        throw new Error(
+          getExecutionErrorMessage(result) ||
+            `Execution engine request failed with status ${apiResponse.status}.`,
+        );
+      }
+
+      const stdout = (result.stdout || "").trim();
+      const stderr = (result.stderr || "").trim();
+      const engineError = (result.error || "").trim();
+
+      if (stderr || engineError) {
+        setCodeResults((prev) => ({
+          ...prev,
+          [currentIndex]: {
+            success: false,
+            output: stderr || engineError,
+          },
+        }));
+        return;
+      }
+
+      setCodeResults((prev) => ({
+        ...prev,
+        [currentIndex]: {
+          success: true,
+          output: stdout || "Execution completed successfully (no output).",
+        },
+      }));
+    } catch (err: any) {
+      const output =
+        err.message === "Failed to fetch"
+          ? "Unable to reach the code execution service. In local development, use the /glot-api Vite proxy because Glot.io does not support browser CORS preflight requests."
+          : err.message || "Execution failure routing request to runtime engine.";
+
+      setCodeResults((prev) => ({
+        ...prev,
+        [currentIndex]: {
+          success: false,
+          output,
+        },
+      }));
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const computeScore = () => {
+    let score = 0;
+    questions.forEach((q, i) => {
+      if (q.type === "code") {
+        if (codeResults[i]?.success) score++;
+      } else {
+        if (
+          selectedAnswers[i] !== undefined &&
+          q.options &&
+          q.options[selectedAnswers[i]]?.isCorrect
+        ) {
+          score++;
+        }
+      }
+    });
+    return score;
   };
 
   const handleNext = async () => {
@@ -157,17 +339,7 @@ const QuizPage: React.FC = () => {
       setCurrentIndex((prev) => prev + 1);
     } else {
       setIsFinished(true);
-
-      // Compute and submit score
-      let score = 0;
-      questions.forEach((q, i) => {
-        if (
-          selectedAnswers[i] !== undefined &&
-          q.options[selectedAnswers[i]]?.isCorrect
-        ) {
-          score++;
-        }
-      });
+      const score = computeScore();
       const percentage = Math.round((score / questions.length) * 100);
 
       if (quizId) {
@@ -178,16 +350,17 @@ const QuizPage: React.FC = () => {
             body: JSON.stringify({ score: percentage }),
           });
         } catch (e) {
-          console.error("Failed to submit score", e);
+          console.error(
+            "Failed to submit score context back to note profile history",
+            e,
+          );
         }
       }
     }
   };
 
   const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-    }
+    if (currentIndex > 0) setCurrentIndex((prev) => prev - 1);
   };
 
   if (isLoading) {
@@ -200,8 +373,6 @@ const QuizPage: React.FC = () => {
             <Skeleton height={40} />
             <Skeleton height={200} />
             <div className='space-y-4'>
-              <Skeleton height={60} />
-              <Skeleton height={60} />
               <Skeleton height={60} />
               <Skeleton height={60} />
             </div>
@@ -233,16 +404,7 @@ const QuizPage: React.FC = () => {
   }
 
   if (isFinished) {
-    // Review mode showing correct answers and explanations
-    let score = 0;
-    questions.forEach((q, i) => {
-      if (
-        selectedAnswers[i] !== undefined &&
-        q.options[selectedAnswers[i]]?.isCorrect
-      ) {
-        score++;
-      }
-    });
+    const score = computeScore();
 
     return (
       <div className='min-h-screen bg-[#f8fafc] flex flex-col font-inter'>
@@ -258,92 +420,45 @@ const QuizPage: React.FC = () => {
                 {Math.round((score / questions.length) * 100)}%)
               </p>
 
-              {/* Adaptive Logic UI Panel */}
               <div className='mb-8'>
-                {currentRound === 1 && score < 7 ? (
+                {currentRound === 1 && score / questions.length < 0.7 ? (
                   <div className='p-4 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-xl mb-4'>
                     <span className='font-bold block mb-1'>
                       More Review Needed
                     </span>
-                    You need to score at least 70% to unlock Round 2. Review the
-                    correct answers below and head back to the concept.
+                    You need to score at least 70% to unlock Round 2.
                   </div>
-                ) : currentRound === 1 &&
-                  (score >= 7 || score / questions.length >= 0.7) ? (
+                ) : currentRound === 1 ? (
                   <div className='p-4 bg-green-50 border border-green-200 text-green-800 rounded-xl mb-4'>
                     <span className='font-bold block mb-1'>Great Job!</span>
-                    You've shown strong foundational knowledge and successfully
-                    unlocked the advanced round.
+                    You've successfully unlocked the advanced round.
                   </div>
-                ) : currentRound === 2 ? (
+                ) : (
                   <div className='p-4 bg-blue-50 border border-blue-200 text-blue-800 rounded-xl mb-4'>
-                    {score >= 9 || score / questions.length >= 0.9 ? (
-                      <>
-                        <span className='font-bold block mb-1'>Mastered!</span>
-                        You have mastered this topic.
-                      </>
-                    ) : score >= 8 || score / questions.length >= 0.8 ? (
-                      <>
-                        <span className='font-bold block mb-1'>Excellent!</span>
-                        You have become very good in this topic.
-                      </>
-                    ) : score >= 7 || score / questions.length >= 0.7 ? (
-                      <>
-                        <span className='font-bold block mb-1'>Good Job!</span>
-                        You have become good in this topic.
-                      </>
-                    ) : (
-                      <>
-                        <span className='font-bold block mb-1'>
-                          Great Effort!
-                        </span>
-                        Review the correct answers below and keep practicing!
-                      </>
-                    )}
+                    <span className='font-bold block mb-1'>
+                      Round 2 Finished
+                    </span>
+                    Review your code output evaluation log profile results
+                    metrics detailed below.
                   </div>
-                ) : null}
+                )}
               </div>
 
               <div className='flex items-center justify-center gap-4'>
                 <button
-                  onClick={() => navigate(`/dashboard`)}
+                  onClick={() => navigate("/dashboard")}
                   className='bg-gray-100 text-[#112240] px-6 py-2 rounded font-semibold border border-gray-300 hover:bg-gray-200'
                 >
                   Return to Dashboard
                 </button>
-                {currentRound === 1 &&
-                  (score >= 7 || score / questions.length >= 0.7) && (
-                    <button
-                      onClick={startNextRound}
-                      className='bg-[#2b4c7e] text-white px-6 py-2 rounded font-semibold hover:bg-[#1f385c]'
-                    >
-                      Start Round 2
-                    </button>
-                  )}
-                {currentRound === 2 && (
+                {currentRound === 1 && score / questions.length >= 0.7 && (
                   <button
-                    onClick={() => navigate(`/summary/${noteId}`)}
+                    onClick={startNextRound}
                     className='bg-[#2b4c7e] text-white px-6 py-2 rounded font-semibold hover:bg-[#1f385c]'
                   >
-                    End lesson and return to summary
+                    Start Round 2
                   </button>
                 )}
-                {currentRound === 2 &&
-                  score < 7 &&
-                  score / questions.length < 0.7 && (
-                    <button
-                      onClick={() => {
-                        // TODO: Implement backend integration for further concept breakdown
-                        console.log(
-                          "Simplify concepts further - pending backend implementation",
-                        );
-                        alert("Simplify Concepts feature coming soon!");
-                      }}
-                      className='bg-yellow-500 text-white px-6 py-2 rounded font-semibold hover:bg-yellow-600 transition'
-                    >
-                      Simplify Concepts Further
-                    </button>
-                  )}
               </div>
             </div>
 
@@ -351,13 +466,16 @@ const QuizPage: React.FC = () => {
               {questions.map((q, qIndex) => {
                 const selectedIdx = selectedAnswers[qIndex];
                 const isCorrectSel =
-                  selectedIdx !== undefined &&
-                  q.options[selectedIdx]?.isCorrect;
+                  q.type === "code"
+                    ? codeResults[qIndex]?.success
+                    : selectedIdx !== undefined &&
+                      q.options &&
+                      q.options[selectedIdx]?.isCorrect;
 
                 return (
                   <div
                     key={qIndex}
-                    className='bg-white p-8 rounded-xl shadow-sm border border-gray-200 relative'
+                    className='bg-white p-8 rounded-xl shadow-sm border border-gray-200'
                   >
                     <div className='flex gap-4 items-center mb-6'>
                       <div
@@ -370,68 +488,60 @@ const QuizPage: React.FC = () => {
                       </h3>
                     </div>
 
-                    {q.codeSnippet && (
-                      <div className='bg-[#1a202c] text-white p-4 rounded-md mb-6 font-mono text-sm overflow-x-auto whitespace-pre-wrap'>
-                        {q.codeSnippet}
+                    {q.type === "code" ? (
+                      <div className='p-4 border rounded-xl bg-gray-50 border-gray-200'>
+                        <h4 className='font-bold mb-2'>Your Code</h4>
+                        <Editor
+                          height='200px'
+                          language={q.language || "javascript"}
+                          value={codeAnswers[qIndex] || q.starterCode || ""}
+                          theme='vs-dark'
+                          options={{
+                            readOnly: true,
+                            minimap: { enabled: false },
+                          }}
+                        />
+                        <div className='mt-4'>
+                          <span className='font-bold'>
+                            Execution Results Summary Output:
+                          </span>
+                          <pre
+                            className={`mt-2 p-2 min-h-[2.5rem] rounded ${codeResults[qIndex]?.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                          >
+                            {codeResults[qIndex]?.output || "Not executed"}
+                          </pre>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className='space-y-4'>
+                        {Array.isArray(q.options) &&
+                          q.options.map((opt, optIndex) => {
+                            const isSelected = selectedIdx === optIndex;
+                            const isActuallyCorrect = opt.isCorrect;
+                            let boxStyles = isActuallyCorrect
+                              ? "border-green-500 bg-green-50"
+                              : isSelected
+                                ? "border-red-500 bg-red-50"
+                                : "border-gray-200 bg-white";
+
+                            return (
+                              <div
+                                key={optIndex}
+                                className={`w-full text-left p-4 rounded-xl border ${boxStyles}`}
+                              >
+                                <div className='flex items-center gap-4'>
+                                  <span className='w-8 h-8 shrink-0 flex items-center justify-center font-bold rounded bg-gray-100 text-gray-700'>
+                                    {String.fromCharCode(65 + optIndex)}
+                                  </span>
+                                  <span className='font-medium text-[#112240] flex-1'>
+                                    {opt.text}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
                       </div>
                     )}
-
-                    <div className='space-y-4'>
-                      {Array.isArray(q.options) ? (
-                        q.options.map((opt, optIndex) => {
-                          const isSelected = selectedIdx === optIndex;
-                          const isActuallyCorrect = opt.isCorrect;
-
-                          let boxStyles = "border-gray-200 bg-white";
-                          let labelStyles = "bg-gray-100 text-gray-700";
-
-                          if (isActuallyCorrect) {
-                            boxStyles = "border-green-500 bg-green-50";
-                            labelStyles = "bg-green-500 text-white";
-                          } else if (isSelected && !isActuallyCorrect) {
-                            boxStyles = "border-red-500 bg-red-50";
-                            labelStyles = "bg-red-500 text-white";
-                          }
-
-                          return (
-                            <div
-                              key={optIndex}
-                              className={`w-full text-left p-4 rounded-xl border ${boxStyles} relative`}
-                            >
-                              <div className='flex items-center gap-4'>
-                                <span
-                                  className={`w-8 h-8 shrink-0 flex items-center justify-center font-bold rounded ${labelStyles}`}
-                                >
-                                  {String.fromCharCode(65 + optIndex)}
-                                </span>
-                                <span className='font-medium text-[#112240] flex-1'>
-                                  {opt.text || opt.toString()}
-                                </span>
-                                {isActuallyCorrect && (
-                                  <FiCheckCircle className='text-green-500 w-5 h-5' />
-                                )}
-                              </div>
-
-                              {/* Display explanation for the correct option explicitly */}
-                              {isActuallyCorrect && opt.explanation && (
-                                <div className='mt-4 pt-4 border-t border-green-200'>
-                                  <p className='text-sm text-green-800'>
-                                    <span className='font-bold'>
-                                      Explanation:
-                                    </span>{" "}
-                                    {opt.explanation}
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div className='p-4 text-red-500 bg-red-50 rounded-xl border border-red-200'>
-                          Options not available for this question.
-                        </div>
-                      )}
-                    </div>
                   </div>
                 );
               })}
@@ -444,7 +554,12 @@ const QuizPage: React.FC = () => {
 
   const currentQuestion = questions[currentIndex];
   const roundText =
-    currentQuestion.round === 1 ? "ROUND 1 — EASY" : "ROUND 2 — MEDIUM/HARD";
+    currentQuestion.round === 1 ? "ROUND 1 — EASY" : "ROUND 2 — ADVANCED";
+
+  const isNextDisabled =
+    currentQuestion.type === "code"
+      ? !codeAnswers[currentIndex] && !currentQuestion.starterCode
+      : selectedAnswers[currentIndex] === undefined;
 
   return (
     <div className='min-h-screen bg-[#f8fafc] flex flex-col font-inter'>
@@ -452,84 +567,109 @@ const QuizPage: React.FC = () => {
 
       <main className='flex-1 p-8 overflow-y-auto'>
         <div className='max-w-4xl mx-auto pt-4'>
-          {/* Top Meta Area */}
           <div className='flex items-center justify-between mb-8'>
             <div>
               <p className='text-xs text-gray-500 font-bold tracking-widest mb-2 uppercase'>
                 QUESTION {currentIndex + 1} OF {questions.length}
               </p>
-              <div className='flex items-center gap-4'>
-                <span className='text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full whitespace-nowrap'>
-                  {roundText}
-                </span>
-                {/* Mock timer purely for visual accuracy to mockup */}
-                <span className='text-green-600 font-bold text-sm flex items-center gap-1'>
-                  ⏱ 15:00
-                </span>
-              </div>
+              <span className='text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full uppercase'>
+                {roundText}
+              </span>
             </div>
-
-            <button className='flex items-center gap-2 text-sm font-semibold border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50 text-gray-600 transition'>
+            <button className='flex items-center gap-2 text-sm font-semibold border border-gray-300 px-4 py-2 rounded-md hover:bg-gray-50 text-gray-600'>
               <FiFlag className='w-4 h-4' /> Report
             </button>
           </div>
 
-          {/* Question */}
-          <h1 className='text-3xl font-bold text-[#112240] mb-8 leading-tight'>
+          <h1 className='text-2xl font-bold text-[#112240] mb-8 leading-tight'>
             {currentQuestion.question}
           </h1>
 
-          {/* Code Snippet (if available) - styled dark like the design */}
-          {currentQuestion.codeSnippet && (
-            <div className='bg-[#1f2937] text-[#e2e8f0] p-6 rounded-xl mb-8 font-mono text-sm leading-relaxed overflow-x-auto whitespace-pre-wrap shadow-md'>
-              <div className='flex gap-2 mb-4'>
-                <div className='w-3 h-3 rounded-full bg-red-500'></div>
-                <div className='w-3 h-3 rounded-full bg-yellow-500'></div>
-                <div className='w-3 h-3 rounded-full bg-green-500'></div>
+          {currentQuestion.type === "code" ? (
+            <div className='mb-12 space-y-4'>
+              <Editor
+                height='300px'
+                language={currentQuestion.language || "javascript"}
+                value={
+                  codeAnswers[currentIndex] !== undefined
+                    ? codeAnswers[currentIndex]
+                    : currentQuestion.starterCode || ""
+                }
+                theme='vs-dark'
+                onChange={(val) =>
+                  setCodeAnswers((prev) => ({
+                    ...prev,
+                    [currentIndex]: val || "",
+                  }))
+                }
+                options={{ minimap: { enabled: false } }}
+              />
+
+              <div className='mt-4 flex flex-wrap items-center gap-4'>
+                <button
+                  onClick={handleRunCode}
+                  disabled={isExecuting}
+                  className={`px-6 py-2 rounded-md font-semibold text-white transition ${isExecuting ? "bg-gray-400 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"}`}
+                >
+                  {isExecuting ? "Running Code Engine..." : "Run Code"}
+                </button>
+
+                {codeResults[currentIndex] && (
+                  <div
+                    className={`px-4 py-2 rounded flex items-center gap-2 ${codeResults[currentIndex].success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                  >
+                    {codeResults[currentIndex].success ? (
+                      <FiCheckCircle />
+                    ) : (
+                      <span>✕</span>
+                    )}
+                    <span className='font-semibold text-sm'>
+                      {codeResults[currentIndex].success
+                        ? "Executed Successfully"
+                        : "Execution Error"}
+                    </span>
+                  </div>
+                )}
               </div>
-              {currentQuestion.codeSnippet}
+
+              {codeResults[currentIndex] && (
+                <div className='mt-4 shadow-sm'>
+                  <h4 className='font-bold text-sm text-gray-700 mb-2'>
+                    Console Execution Output:
+                  </h4>
+                  <pre
+                    className={`p-4 rounded-xl text-sm min-h-[3rem] whitespace-pre-wrap font-mono border ${codeResults[currentIndex].success ? "bg-green-50 text-green-900 border-green-200" : "bg-red-50 text-red-900 border-red-200"}`}
+                  >
+                    {codeResults[currentIndex].output}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className='grid grid-cols-1 gap-4 mb-12'>
+              {Array.isArray(currentQuestion.options) &&
+                currentQuestion.options.map((opt, idx) => {
+                  const isSelected = selectedAnswers[currentIndex] === idx;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => handleSelectOption(idx)}
+                      className={`w-full text-left p-4 rounded-xl border transition flex items-center gap-4 group hover:border-[#112240] ${isSelected ? "border-[#112240] bg-blue-50/50 shadow-sm" : "border-gray-200 bg-white"}`}
+                    >
+                      <span
+                        className={`w-8 h-8 shrink-0 rounded flex items-center justify-center font-bold text-sm ${isSelected ? "bg-[#112240] text-white" : "bg-gray-100 text-gray-600"}`}
+                      >
+                        {String.fromCharCode(65 + idx)}
+                      </span>
+                      <span className='font-semibold text-[#112240]'>
+                        {opt.text}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           )}
 
-          {/* Options grid */}
-          <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mb-12'>
-            {Array.isArray(currentQuestion.options) ? (
-              currentQuestion.options.map((opt, idx) => {
-                const isSelected = selectedAnswers[currentIndex] === idx;
-
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => handleSelectOption(idx)}
-                    className={`w-full text-left p-4 rounded-xl border transition flex items-center gap-4 group hover:border-[#112240] ${
-                      isSelected
-                        ? "border-[#112240] bg-blue-50/50 shadow-sm"
-                        : "border-gray-200 bg-white"
-                    }`}
-                  >
-                    <span
-                      className={`w-8 h-8 shrink-0 rounded flex items-center justify-center font-bold text-sm transition ${
-                        isSelected
-                          ? "bg-[#112240] text-white"
-                          : "bg-gray-100 text-gray-600 group-hover:bg-gray-200"
-                      }`}
-                    >
-                      {String.fromCharCode(65 + idx)}
-                    </span>
-                    <span className='font-semibold text-[#112240] text-lg'>
-                      {opt.text || opt.toString()}
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className='col-span-full p-4 text-red-500 bg-red-50 rounded-xl border border-red-200'>
-                Options not available for this question.
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Bar: Prev / Next */}
           <div className='pt-6 border-t border-gray-200 flex items-center justify-between'>
             <button
               onClick={handlePrev}
@@ -541,12 +681,8 @@ const QuizPage: React.FC = () => {
 
             <button
               onClick={handleNext}
-              disabled={selectedAnswers[currentIndex] === undefined}
-              className={`flex items-center gap-2 font-semibold px-6 py-2.5 rounded-md text-white transition ${
-                selectedAnswers[currentIndex] === undefined
-                  ? "bg-gray-300 cursor-not-allowed"
-                  : "bg-[#112240] hover:bg-[#1f385c]"
-              }`}
+              disabled={isNextDisabled}
+              className={`flex items-center gap-2 font-semibold px-6 py-2.5 rounded-md text-white transition ${isNextDisabled ? "bg-gray-300 cursor-not-allowed" : "bg-[#112240] hover:bg-[#1f385c]"}`}
             >
               {currentIndex === questions.length - 1
                 ? "Finish Quiz"
