@@ -24,18 +24,6 @@ const Header: React.FC<HeaderProps> = ({ user, onUploadClick }) => {
           >
             Dashboard
           </Link>
-          <Link
-            to='/curriculum'
-            className='text-sm font-medium text-gray-500 hover:text-gray-900 py-5'
-          >
-            Curriculum
-          </Link>
-          <Link
-            to='/community'
-            className='text-sm font-medium text-gray-500 hover:text-gray-900 py-5'
-          >
-            Community
-          </Link>
         </nav>
       </div>
 

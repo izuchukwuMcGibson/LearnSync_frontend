@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from "vite";
+declare const process: any;
 import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
@@ -15,7 +16,7 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         "/api": {
-          target: "https://learnsync-production-c870.up.railway.app",
+          target: "https://learnsync.pxxl.run",
           changeOrigin: true,
         },
         "/glot-api": {

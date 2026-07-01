@@ -8,7 +8,6 @@ import {
   FiArrowLeft,
   FiArrowRight,
   FiCheckCircle,
-  FiTerminal,
 } from "react-icons/fi";
 import Header from "../components/Header";
 
@@ -302,7 +301,8 @@ const QuizPage = () => {
       const output =
         err.message === "Failed to fetch"
           ? "Unable to reach the code execution service. In local development, use the /glot-api Vite proxy because Glot.io does not support browser CORS preflight requests."
-          : err.message || "Execution failure routing request to runtime engine.";
+          : err.message ||
+            "Execution failure routing request to runtime engine.";
 
       setCodeResults((prev) => ({
         ...prev,

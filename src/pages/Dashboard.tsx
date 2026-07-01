@@ -12,6 +12,7 @@ import {
 } from "react-icons/fi";
 import Header from "../components/Header";
 import SideBar from "../components/SideBar";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface User {
   id: string;
@@ -40,46 +41,50 @@ const Dashboard: React.FC = () => {
   const [topic, setTopic] = useState("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  // fetch user with react-query
+  const fetchUser = async (): Promise<User | null> => {
+    const res = await fetch("/api/users/me");
+    if (!res.ok) {
+      throw new Error("Failed to fetch user");
+    }
+    const data = await res.json();
+    return data.user || data;
+  };
+
+  const userQuery = useQuery({
+    queryKey: ["user"],
+    queryFn: fetchUser,
+    retry: false,
+  });
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const response = await fetch("/api/users/me");
+    if (userQuery.data) {
+      setUser(userQuery.data);
+    }
+    setIsLoading(userQuery.isLoading);
+    if (userQuery.isError) {
+      navigate("/login");
+    }
+  }, [userQuery.data, userQuery.isLoading, userQuery.isError, navigate]);
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch user");
-        }
+  const fetchNotes = async (userId: string) => {
+    const res = await fetch(`/api/notes/get-notes/${userId}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : data.notes || [];
+  };
 
-        const data = await response.json();
-        const userData = data.user || data;
-        setUser(userData);
+  const notesQuery = useQuery<Note[]>({
+    queryKey: ["notes", user?.id],
+    queryFn: () => fetchNotes(user!.id),
+    enabled: !!user?.id,
+  });
 
-        if (userData?.id) {
-          // Fetch notes
-          try {
-            const notesResponse = await fetch(
-              `/api/notes/get-notes/${userData.id}`,
-            );
-            if (notesResponse.ok) {
-              const notesData = await notesResponse.json();
-              setNotes(
-                Array.isArray(notesData) ? notesData : notesData.notes || [],
-              );
-            }
-          } catch (noteErr) {
-            console.error("Error fetching notes", noteErr);
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching user:", error);
-        navigate("/login");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUser();
-  }, [navigate]);
+  useEffect(() => {
+    if (notesQuery.data) setNotes(notesQuery.data);
+  }, [notesQuery.data]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -105,14 +110,9 @@ const Dashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        // Fetch notes again to reflect the newly uploaded note
-        const notesResponse = await fetch(`/api/notes/get-notes/${user.id}`);
-        if (notesResponse.ok) {
-          const notesData = await notesResponse.json();
-          setNotes(
-            Array.isArray(notesData) ? notesData : notesData.notes || [],
-          );
-        }
+        // invalidate notes query so cached notes update
+        if (user?.id)
+          queryClient.invalidateQueries({ queryKey: ["notes", user.id] });
       } else {
         console.error("Failed to upload note");
       }
@@ -149,10 +149,9 @@ const Dashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        // Remove the note from local state immediately for a fast UI update
-        setNotes((prevNotes) =>
-          prevNotes.filter((n) => (n.id || n._id || n.noteId) !== noteId),
-        );
+        // Invalidate notes query so UI updates from cache
+        if (user?.id)
+          queryClient.invalidateQueries({ queryKey: ["notes", user.id] });
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error("Failed to delete note", errorData);
