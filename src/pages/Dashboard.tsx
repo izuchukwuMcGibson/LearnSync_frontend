@@ -34,7 +34,6 @@ interface Note {
 const Dashboard: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -63,7 +62,6 @@ const Dashboard: React.FC = () => {
     if (userQuery.data) {
       setUser(userQuery.data);
     }
-    setIsLoading(userQuery.isLoading);
     if (userQuery.isError) {
       navigate("/login");
     }
@@ -85,6 +83,12 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     if (notesQuery.data) setNotes(notesQuery.data);
   }, [notesQuery.data]);
+
+  // Do not render the empty state until the user's notes have finished loading.
+  // Without this, the dashboard briefly treats the initial empty array as a
+  // confirmed "no notes" result while the notes request is still in flight.
+  const isDashboardLoading =
+    userQuery.isLoading || !user || notesQuery.isLoading;
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -165,7 +169,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  if (isLoading) {
+  if (isDashboardLoading) {
     return (
       <div className='h-screen bg-gray-50 flex flex-col font-inter'>
         <Header user={null} />

@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         "/api": {
-          target: "https://learnsync.pxxl.run",
+          target: " http://localhost:3000",
           changeOrigin: true,
         },
         "/glot-api": {
