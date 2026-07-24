@@ -14,3 +14,14 @@
     font-family: "Inter", ui-sans-serif, system-ui;
   }
 }
+
+.mermaid-diagram {
+  display: flex;
+  min-width: max-content;
+  justify-content: center;
+}
+
+.mermaid-diagram svg {
+  max-width: none;
+  height: auto;
+}

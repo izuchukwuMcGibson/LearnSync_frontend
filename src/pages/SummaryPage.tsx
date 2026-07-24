@@ -10,8 +10,10 @@ import {
   FiChevronLeft,
   FiBookmark,
   FiAlertTriangle,
+  FiGitBranch,
 } from "react-icons/fi";
 import Header from "../components/Header";
+import MermaidDiagram from "../components/MermaidDiagram";
 
 interface KeyPoint {
   concept: string;
@@ -25,7 +27,22 @@ interface SummaryData {
   isRead?: boolean;
   quizAttempts?: number;
   averageScore?: number;
+  diagramSyntax?: string;
 }
+
+const getSummaryData = (payload: any): SummaryData => {
+  const summaryData = payload.data || payload;
+  const diagramSyntax =
+    summaryData.diagramSyntax ||
+    payload.diagramSyntax ||
+    payload.summary?.diagramSyntax ||
+    payload.data?.summary?.diagramSyntax;
+
+  return {
+    ...summaryData,
+    diagramSyntax,
+  };
+};
 
 const SummaryPage: React.FC = () => {
   const { noteId } = useParams<{ noteId: string }>();
@@ -69,7 +86,7 @@ const SummaryPage: React.FC = () => {
         throw new Error(json.error || json.message);
       }
 
-      const summaryData = json.data || json;
+      const summaryData = getSummaryData(json);
       setData(summaryData);
       if (summaryData.isRead) {
         setIsRead(true);
@@ -117,7 +134,7 @@ const SummaryPage: React.FC = () => {
           throw new Error(json.error || json.message);
         }
 
-        const summaryData = json.data || json;
+        const summaryData = getSummaryData(json);
         setData(summaryData);
         if (summaryData.isRead) {
           setIsRead(true);
@@ -372,6 +389,32 @@ const SummaryPage: React.FC = () => {
                     ) : null}
                   </div>
                 </div>
+
+                {data.diagramSyntax?.trim() && (
+                  <section className='mb-12 rounded-2xl border border-blue-100 bg-gradient-to-br from-[#f8fbff] via-white to-[#eef5ff] p-5 shadow-sm sm:p-8'>
+                    <div className='mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+                      <div className='flex items-center gap-3'>
+                        <div className='flex h-10 w-10 items-center justify-center rounded-xl bg-[#112240] text-white shadow-sm'>
+                          <FiGitBranch className='h-5 w-5' />
+                        </div>
+                        <div>
+                          <h2 className='text-2xl font-bold text-[#112240]'>
+                            Concept Map
+                          </h2>
+                          <p className='mt-1 text-sm text-slate-500'>
+                            See how the ideas in this summary connect.
+                          </p>
+                        </div>
+                      </div>
+                      <span className='w-fit rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-[#2b4c7e]'>
+                        Visual study guide
+                      </span>
+                    </div>
+                    <div className='overflow-x-auto rounded-xl border border-slate-200 bg-white p-4 sm:p-6'>
+                      <MermaidDiagram syntax={data.diagramSyntax} />
+                    </div>
+                  </section>
+                )}
 
                 {/* Key Concepts Section */}
                 {data.keyPoints && data.keyPoints.length > 0 && (
