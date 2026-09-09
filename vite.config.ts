@@ -4,8 +4,11 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const glotProxyHeaders = env.VITE_GLOT_TOKEN
-    ? { Authorization: `Token ${env.VITE_GLOT_TOKEN}` }
+  const judge0ProxyHeaders = env.RAPID_API_KEY
+    ? {
+        "X-RapidAPI-Key": env.RAPID_API_KEY,
+        "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
+      }
     : undefined;
 
   return {
@@ -19,11 +22,11 @@ export default defineConfig(({ mode }) => {
           target: " http://localhost:3000",
           changeOrigin: true,
         },
-        "/glot-api": {
-          target: "https://glot.io/api",
+        "/judge0-api": {
+          target: "https://judge0-ce.p.rapidapi.com",
           changeOrigin: true,
-          headers: glotProxyHeaders,
-          rewrite: (path) => path.replace(/^\/glot-api/, ""),
+          headers: judge0ProxyHeaders,
+          rewrite: (path) => path.replace(/^\/judge0-api/, ""),
         },
       },
     },
