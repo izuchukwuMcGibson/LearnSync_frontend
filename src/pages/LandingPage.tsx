@@ -148,7 +148,7 @@ export const LandingPage = () => {
               >
                 <span className="text-blue-600 font-bold text-xs">⚡</span>
                 <span className="text-[11px] font-bold text-blue-900 tracking-wider uppercase">
-                  BUILT FOR CS & ENGINEERING STUDENTS • OVER 12K QUESTIONS
+                  BUILT FOR COMPUTER SCIENCE STUDENTS •
                 </span>
               </motion.div>
 
