@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         "/api": {
-          target: " https://learnsync.pxxl.run",
+          target: "https://learnsync.pxxl.run",
           changeOrigin: true,
         },
         "/judge0-api": {
