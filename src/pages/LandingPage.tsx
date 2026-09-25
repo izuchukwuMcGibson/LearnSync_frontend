@@ -1227,9 +1227,7 @@ export const LandingPage = () => {
 
         {/* Interactive hover hint */}
         <div className="text-center mt-4">
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 font-medium">
-            
-          </span>
+          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 font-medium"></span>
         </div>
       </section>
 
